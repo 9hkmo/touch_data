@@ -13,6 +13,14 @@ struct TargetCircle: Identifiable {
     var createdTime: Date = Date()
 }
 
+struct TouchLog {
+    let hand: String
+    let distance: CGFloat
+    let dx: CGFloat
+    let dy: CGFloat
+    let responseTime: TimeInterval
+}
+
 struct TwoHandTouchView: View {
     @State private var leftTargets: [TargetCircle] = []
     @State private var rightTargets: [TargetCircle] = []
@@ -22,6 +30,9 @@ struct TwoHandTouchView: View {
 
     @State private var countdownText: String? = nil
     @State private var countdownTimer: Timer? = nil
+
+    @State private var logs: [TouchLog] = []
+
 
     let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
     
@@ -75,6 +86,7 @@ struct TwoHandTouchView: View {
                             isLeftActive = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
                                 isLeftActive = false
+                                saveCSV()
                             }
                         }
                     }
@@ -122,6 +134,15 @@ struct TwoHandTouchView: View {
         let dx = target.position.x - center.x
         let dy = target.position.y - center.y
         let distance = sqrt(dx * dx + dy * dy)
+        
+        logs.append(TouchLog(
+            hand: isLeft ? "left" : "right",
+            distance: distance,
+            dx: dx,
+            dy: dy,
+            responseTime: duration
+        ))
+        
         print("""
         🖐 \(isLeft ? "왼쪽" : "오른쪽") 터치!
         ⤷ 상대 위치: (dx: \(String(format: "%.2f", dx)), dy: \(String(format: "%.2f", dy)))
@@ -152,6 +173,26 @@ struct TwoHandTouchView: View {
                 countdownText = nil
                 completion()
             }
+        }
+    }
+
+    func saveCSV() {
+        let header = "hand,distance_from_center,dx,dy,response_time"
+        let rows = logs.map {
+            "\($0.hand),\(String(format: "%.2f", $0.distance)),\(String(format: "%.2f", $0.dx)),\(String(format: "%.2f", $0.dy)),\(String(format: "%.2f", $0.responseTime))"
+        }
+        let csv = ([header] + rows).joined(separator: "\n")
+
+        let filename = "TouchLog_\(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short).replacingOccurrences(of: "[:/ ]", with: "_", options: .regularExpression))"
+        
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("\(filename).csv")
+
+        do {
+            try csv.write(to: url, atomically: true, encoding: .utf8)
+            print("CSV 저장 완료: \(url)")
+        } catch {
+            print("CSV 저장 실패: \(error)")
         }
     }
 
