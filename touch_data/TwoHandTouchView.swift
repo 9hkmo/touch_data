@@ -16,16 +16,21 @@ struct TargetCircle: Identifiable {
 struct TwoHandTouchView: View {
     @State private var leftTargets: [TargetCircle] = []
     @State private var rightTargets: [TargetCircle] = []
-    
-    let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect() // ✅ 2초마다
 
+    @State private var isRightActive = false
+    @State private var isLeftActive = false
+
+    @State private var countdownText: String? = nil
+    @State private var countdownTimer: Timer? = nil
+
+    let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    
     var body: some View {
         GeometryReader { geo in
             HStack(spacing: 0) {
                 // 왼쪽 원
                 ZStack {
-                    Circle()
-                        .fill(Color.blue.opacity(0.3))
+                    Circle().fill(Color.blue.opacity(0.3))
                         .frame(width: geo.size.height, height: geo.size.height)
 
                     ForEach(leftTargets) { target in
@@ -44,8 +49,7 @@ struct TwoHandTouchView: View {
 
                 // 오른쪽 원
                 ZStack {
-                    Circle()
-                        .fill(Color.green.opacity(0.3))
+                    Circle().fill(Color.green.opacity(0.3))
                         .frame(width: geo.size.height, height: geo.size.height)
 
                     ForEach(rightTargets) { target in
@@ -58,49 +62,74 @@ struct TwoHandTouchView: View {
                                 logTouch(target: target, isLeft: false, center: center)
                                 rightTargets.removeAll { $0.id == target.id }
                             }
-
                     }
                 }
                 .frame(width: geo.size.width / 2, height: geo.size.height)
             }
-//            .overlay(
-//                Text("📱 화면을 왼쪽으로 돌려 가로모드로 사용해 주세요.\n🖐 왼손으로 왼쪽, 오른손으로 오른쪽을 조작하세요.")
-//                    .font(.headline)
-//                    .multilineTextAlignment(.center)
-//                    .padding()
-//                    .background(Color.white.opacity(0.8))
-//                    .cornerRadius(12)
-//                    .padding(),
-//                alignment: .top
-//            )
+            .onAppear {
+                startCountdown(seconds: 3, label: "🖐 오른손 테스트 시작까지") {
+                    isRightActive = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                        isRightActive = false
+                        startCountdown(seconds: 3, label: "🖐 왼손 테스트 시작까지") {
+                            isLeftActive = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                                isLeftActive = false
+                            }
+                        }
+                    }
+                }
+            }
+
             .onReceive(timer) { _ in
                 let size = geo.size.height
-                addRandomTarget(to: &leftTargets, in: size)
-                addRandomTarget(to: &rightTargets, in: size)
+                if isRightActive {
+                    addRandomTarget(to: &rightTargets, in: size)
+                } else if isLeftActive {
+                    addRandomTarget(to: &leftTargets, in: size)
+                }
             }
+            .overlay(
+                Text(overlayText())
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .padding()
+                    .background(Color.white.opacity(0.8))
+                    .cornerRadius(12)
+                    .padding(),
+                alignment: .top
+            )
         }
         .ignoresSafeArea()
     }
+    
+    func overlayText() -> String {
+        if let countdown = countdownText {
+            return "⏳ \(countdown)"
+        } else if isRightActive {
+            return "🖐 오른손으로 오른쪽 원을 터치해 주세요 (30초 테스트 중)"
+        } else if isLeftActive {
+            return "🖐 왼손으로 왼쪽 원을 터치해 주세요 (30초 테스트 중)"
+        } else {
+            return "✅ 테스트 종료! 감사합니다."
+        }
+    }
+
 
     func logTouch(target: TargetCircle, isLeft: Bool, center: CGPoint) {
         let now = Date()
         let duration = now.timeIntervalSince(target.createdTime)
-        
         let dx = target.position.x - center.x
         let dy = target.position.y - center.y
         let distance = sqrt(dx * dx + dy * dy)
-        
         print("""
         🖐 \(isLeft ? "왼쪽" : "오른쪽") 터치!
-        ⤷ 중심 기준 상대 위치: (dx: \(String(format: "%.2f", dx)), dy: \(String(format: "%.2f", dy)))
-        ⤷ 중심과의 거리: \(String(format: "%.2f", distance))pt
-        ⤷ 반응속도: \(String(format: "%.2f", duration))s
+        ⤷ 상대 위치: (dx: \(String(format: "%.2f", dx)), dy: \(String(format: "%.2f", dy)))
+        ⤷ 거리: \(String(format: "%.2f", distance))pt, 반응속도: \(String(format: "%.2f", duration))s
         """)
     }
 
-
     func addRandomTarget(to array: inout [TargetCircle], in size: CGFloat) {
-        if array.count >= 10 { return } // 최대 10개까지만 허용
         let radius = size / 2
         let angle = Double.random(in: 0..<2 * .pi)
         let r = Double.random(in: 40...(radius - 40))
@@ -108,7 +137,26 @@ struct TwoHandTouchView: View {
         let y = CGFloat(radius + sin(angle) * r)
         array.append(TargetCircle(position: CGPoint(x: x, y: y)))
     }
+    
+    func startCountdown(seconds: Int, label: String, completion: @escaping () -> Void) {
+        var timeLeft = seconds
+        countdownText = "\(label) \(timeLeft)..."
+
+        countdownTimer?.invalidate()
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            timeLeft -= 1
+            if timeLeft > 0 {
+                countdownText = "\(label) \(timeLeft)..."
+            } else {
+                timer.invalidate()
+                countdownText = nil
+                completion()
+            }
+        }
+    }
+
 }
+
 
 #Preview {
     TwoHandTouchView()
